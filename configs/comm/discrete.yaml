@@ -1,0 +1,6 @@
+comm:
+  type: "discrete"
+  dim: 8
+  num_symbols: 8
+  gumbel_tau: 1.0
+  gumbel_tau_min: 0.1

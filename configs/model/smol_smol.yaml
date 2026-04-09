@@ -1,0 +1,9 @@
+speaker:
+  model_id: "HuggingFaceTB/SmolLM2-135M-Instruct"
+  hidden_size: 576
+  dtype: "float16"
+
+listener:
+  model_id: "HuggingFaceTB/SmolLM2-135M-Instruct"
+  hidden_size: 576
+  dtype: "float16"

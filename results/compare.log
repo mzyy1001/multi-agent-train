@@ -1,0 +1,94 @@
+/home/mzyy1001/miniconda3/envs/deepemu312/lib/python3.12/site-packages/pygame/pkgdata.py:25: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import resource_stream, resource_exists
+Loading LLM backbone (shared across all methods)...
+Loading weights:   0%|          | 0/272 [00:00<?, ?it/s]Loading weights: 100%|██████████| 272/272 [00:00<00:00, 3397.48it/s]
+  hidden_size=576
+
+============================================================
+  METHOD: ssr
+  comm.type=ssr, comm.dim=8
+  total_episodes=5000
+============================================================
+  Trainable params: speaker=103,353, listener=142,155
+  [   512/5000] train=  -44.32  eval=  -68.31 +/- 62.05  loss=0.3166  elapsed=5.1m  ETA=44.9m
+  [  1024/5000] train=  -35.25  eval=  -70.76 +/- 62.87  loss=0.3151  elapsed=11.3m  ETA=43.7m
+  [  1504/5000] train=  -43.80  eval=  -70.37 +/- 67.13  loss=0.2962  elapsed=17.1m  ETA=39.7m
+  [  2016/5000] train=  -41.18  eval=  -65.19 +/- 60.19  loss=0.3180  elapsed=23.3m  ETA=34.5m
+  [  2528/5000] train=  -32.00  eval=  -62.58 +/- 58.95  loss=0.2841  elapsed=29.5m  ETA=28.8m
+  [  3008/5000] train=  -44.13  eval=  -65.38 +/- 56.95  loss=0.3457  elapsed=35.3m  ETA=23.4m
+  [  3520/5000] train=  -37.68  eval=  -63.35 +/- 57.63  loss=0.3122  elapsed=41.5m  ETA=17.4m
+  [  4000/5000] train=  -45.11  eval=  -63.60 +/- 57.69  loss=0.3052  elapsed=47.2m  ETA=11.8m
+  [  4512/5000] train=  -31.61  eval=  -60.27 +/- 52.93  loss=0.3238  elapsed=53.4m  ETA=5.8m
+  [  5024/5000] train=  -38.22  eval=  -59.19 +/- 53.47  loss=0.3036  elapsed=59.5m  ETA=-0.3m
+  FINAL: eval=-59.19 +/- 53.47, time=60.1min
+
+============================================================
+  METHOD: discrete
+  comm.type=discrete, comm.dim=8
+  total_episodes=5000
+============================================================
+  Trainable params: speaker=101,145, listener=142,155
+  [   512/5000] train=  -41.60  eval=  -44.94 +/- 41.51  loss=0.3289  elapsed=6.2m  ETA=54.2m
+  [  1024/5000] train=  -43.74  eval=  -45.80 +/- 44.31  loss=0.3214  elapsed=12.3m  ETA=47.6m
+  [  1504/5000] train=  -40.52  eval=  -45.20 +/- 44.04  loss=0.2801  elapsed=18.0m  ETA=41.9m
+  [  2016/5000] train=  -33.63  eval=  -43.88 +/- 42.06  loss=0.3217  elapsed=24.1m  ETA=35.7m
+  [  2528/5000] train=  -35.13  eval=  -43.56 +/- 41.67  loss=0.3088  elapsed=30.2m  ETA=29.5m
+  [  3008/5000] train=  -32.75  eval=  -43.32 +/- 41.80  loss=0.3198  elapsed=35.9m  ETA=23.8m
+  [  3520/5000] train=  -31.47  eval=  -43.34 +/- 41.50  loss=0.3258  elapsed=42.0m  ETA=17.7m
+  [  4000/5000] train=  -32.88  eval=  -43.15 +/- 41.05  loss=0.3172  elapsed=47.8m  ETA=11.9m
+  [  4512/5000] train=  -35.11  eval=  -43.36 +/- 41.42  loss=0.3615  elapsed=53.9m  ETA=5.8m
+  [  5024/5000] train=  -39.37  eval=  -44.22 +/- 43.07  loss=0.3045  elapsed=60.0m  ETA=-0.3m
+  FINAL: eval=-44.22 +/- 43.07, time=60.6min
+
+============================================================
+  METHOD: continuous
+  comm.type=continuous, comm.dim=8
+  total_episodes=5000
+============================================================
+  Trainable params: speaker=99,977, listener=142,155
+  [   512/5000] train=  -47.42  eval=  -85.25 +/- 57.81  loss=0.2935  elapsed=6.1m  ETA=53.4m
+  [  1024/5000] train=  -38.46  eval=  -72.91 +/- 58.17  loss=0.2669  elapsed=12.2m  ETA=47.3m
+  [  1504/5000] train=  -40.57  eval=  -80.17 +/- 62.27  loss=0.3001  elapsed=17.9m  ETA=41.7m
+  [  2016/5000] train=  -34.91  eval=  -74.12 +/- 57.67  loss=0.3100  elapsed=24.1m  ETA=35.7m
+  [  2528/5000] train=  -32.11  eval=  -59.51 +/- 47.63  loss=0.3173  elapsed=30.3m  ETA=29.6m
+  [  3008/5000] train=  -40.27  eval=  -62.73 +/- 50.73  loss=0.3227  elapsed=36.1m  ETA=23.9m
+  [  3520/5000] train=  -36.40  eval=  -56.47 +/- 46.89  loss=0.3037  elapsed=42.2m  ETA=17.8m
+  [  4000/5000] train=  -40.63  eval=  -73.31 +/- 55.19  loss=0.3042  elapsed=48.1m  ETA=12.0m
+  [  4512/5000] train=  -29.76  eval=  -60.77 +/- 47.12  loss=0.3198  elapsed=54.2m  ETA=5.9m
+  [  5024/5000] train=  -38.07  eval=  -66.37 +/- 53.45  loss=0.2882  elapsed=60.3m  ETA=-0.3m
+  FINAL: eval=-66.37 +/- 53.45, time=60.9min
+
+============================================================
+  METHOD: no_comm
+  comm.type=none, comm.dim=1
+  total_episodes=5000
+============================================================
+  Trainable params: speaker=98,945, listener=141,259
+  [   512/5000] train=  -34.09  eval=  -40.47 +/- 33.47  loss=0.1569  elapsed=6.2m  ETA=54.0m
+  [  1024/5000] train=  -30.73  eval=  -40.80 +/- 33.11  loss=0.0935  elapsed=12.3m  ETA=47.9m
+  [  1504/5000] train=  -34.70  eval=  -40.86 +/- 33.69  loss=0.0714  elapsed=18.1m  ETA=42.2m
+  [  2016/5000] train=  -30.57  eval=  -41.18 +/- 33.61  loss=0.0860  elapsed=24.3m  ETA=36.0m
+  [  2528/5000] train=  -31.00  eval=  -43.84 +/- 34.70  loss=0.3079  elapsed=30.5m  ETA=29.8m
+  [  3008/5000] train=  -38.69  eval=  -61.33 +/- 50.94  loss=0.3158  elapsed=36.3m  ETA=24.0m
+  [  3520/5000] train=  -38.00  eval=  -71.26 +/- 55.58  loss=0.2907  elapsed=42.5m  ETA=17.9m
+  [  4000/5000] train=  -38.87  eval=  -70.52 +/- 55.78  loss=0.2993  elapsed=48.3m  ETA=12.1m
+  [  4512/5000] train=  -31.11  eval=  -82.92 +/- 57.89  loss=0.3180  elapsed=54.5m  ETA=5.9m
+  [  5024/5000] train=  -44.24  eval= -152.47 +/- 90.61  loss=0.2732  elapsed=59.7m  ETA=-0.3m
+  FINAL: eval=-152.47 +/- 90.61, time=60.1min
+
+Total time: 243.0 minutes
+
+============================================================
+  COMPARISON SUMMARY
+============================================================
+Method                       Eval Reward   Time (min)
+------------------------- -------------- ------------
+discrete                  -45.32 +/- 43.63       60.7
+ssr                       -66.02 +/- 59.35       61.2
+continuous                -77.77 +/- 60.09       61.0
+no_comm                   -152.47 +/- 90.61       60.1
+
+Best method: discrete (reward=-45.32)
+Improvement over no-comm: +107.15
+
+Results saved to results/comparison.json

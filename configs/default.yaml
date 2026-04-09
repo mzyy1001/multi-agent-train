@@ -1,0 +1,57 @@
+seed: 42
+device: "cuda"
+
+env:
+  name: "simple_speaker_listener_v4"
+  max_cycles: 25
+  continuous_actions: true
+
+speaker:
+  model_id: "HuggingFaceTB/SmolLM2-135M-Instruct"
+  hidden_size: 576
+  dtype: "float16"
+
+listener:
+  model_id: "HuggingFaceTB/SmolLM2-135M-Instruct"
+  hidden_size: 576
+  dtype: "float16"
+
+comm:
+  type: "ssr"
+  dim: 8
+  num_symbols: 8
+  gumbel_tau: 1.0
+  gumbel_tau_min: 0.1
+
+modules:
+  projector_hidden: 128
+  adapter_hidden: 128
+  action_hidden: 64
+
+training:
+  algorithm: "ppo"
+  total_episodes: 50000
+  lr: 3.0e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_eps: 0.2
+  entropy_coef: 0.01
+  value_coef: 0.5
+  max_grad_norm: 0.5
+  ppo_epochs: 4
+  minibatch_size: 256
+  rollout_episodes: 32
+  centralized: false
+
+logging:
+  backend: "tensorboard"
+  log_dir: "runs/"
+  log_interval: 100
+  eval_interval: 1000
+  eval_episodes: 50
+  save_interval: 5000
+  wandb_project: "multi-agent-ssr"
+
+checkpoint:
+  dir: "checkpoints/"
+  resume: null
