@@ -7,31 +7,29 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from src.agents.listener import ListenerAgent
-from src.agents.speaker import SpeakerAgent
+from src.agents.lora_listener import LoRAListenerAgent
+from src.agents.lora_speaker import LoRASpeakerAgent
 from src.config import TrainingConfig
 from src.env_wrapper import SpeakerListenerEnv
 
 from .rollout_buffer import RolloutBuffer, Transition
 
 
-class PPOTrainer:
-    """PPO trainer for the two-agent system.
+class LoRAPPOTrainer:
+    """PPO trainer for LoRA-enabled two-agent system.
 
-    The critical gradient path for communication:
-      reward -> listener_policy_loss -> action_head -> receiver_adapter
-             -> message (from speaker's comm channel)
-             -> comm_channel -> speaker's obs_projector
+    Key difference from PPOTrainer: during the update step, the LoRA backbone
+    is re-forwarded with gradient tracking, so gradients flow through:
+      PPO loss → ActionHead → Adapter → message → CommChannel → ObsProjector → LoRA LLM
 
-    During the PPO update, both agents are re-forwarded with gradient
-    tracking so that the speaker's trainable modules receive gradients
-    through the listener's policy loss.
+    This creates the "gradient highway" — the speaker's LLM weights are updated
+    based on the listener's task performance, mediated by the differentiable message.
     """
 
     def __init__(
         self,
-        speaker: SpeakerAgent,
-        listener: ListenerAgent,
+        speaker: LoRASpeakerAgent,
+        listener: LoRAListenerAgent,
         config: TrainingConfig,
         device: str = "cuda",
     ):
@@ -40,20 +38,28 @@ class PPOTrainer:
         self.config = config
         self.device = device
 
-        # Single optimizer over ALL trainable params from both agents
+        # Single optimizer over ALL trainable params (including LoRA weights)
         self.all_params = list(speaker.parameters()) + list(listener.parameters())
         self.optimizer = torch.optim.Adam(self.all_params, lr=config.lr)
+
+        # Report param breakdown
+        speaker_lora = speaker.backbone.trainable_params()
+        listener_lora = listener.backbone.trainable_params()
+        speaker_other = sum(p.numel() for p in speaker.parameters() if p.requires_grad) - speaker_lora
+        listener_other = sum(p.numel() for p in listener.parameters() if p.requires_grad) - listener_lora
+        print(f"  LoRA params: speaker={speaker_lora:,}, listener={listener_lora:,}")
+        print(f"  Other trainable: speaker={speaker_other:,}, listener={listener_other:,}")
+        print(f"  Total trainable: {speaker_lora + listener_lora + speaker_other + listener_other:,}")
 
     def collect_rollouts(
         self,
         env: SpeakerListenerEnv,
         num_episodes: int,
-    ) -> RolloutBuffer:
-        """Run episodes, collecting transitions. No gradient tracking."""
+    ) -> tuple[RolloutBuffer, dict]:
+        """Run episodes with no gradient tracking (eval mode for LoRA too)."""
         buffer = RolloutBuffer()
         self.speaker.eval()
         self.listener.eval()
-        # Clear cache at start of new rollout (stale from previous iteration)
         self.speaker.clear_cache()
         self.listener.clear_cache()
 
@@ -69,12 +75,10 @@ class PPOTrainer:
                 with torch.no_grad():
                     speaker_out = self.speaker.act(s_obs)
                     message = speaker_out["message"]
-
                     listener_out = self.listener.act(l_obs, message)
 
                 s_obs_next, l_obs_next, reward, done, _ = env.step(
-                    speaker_out["env_action"],
-                    listener_out["env_action"],
+                    speaker_out["env_action"], listener_out["env_action"],
                 )
 
                 episode.append(Transition(
@@ -89,7 +93,6 @@ class PPOTrainer:
                     done=done,
                 ))
                 ep_reward += reward
-
                 if done:
                     break
                 s_obs, l_obs = s_obs_next, l_obs_next
@@ -104,9 +107,12 @@ class PPOTrainer:
         }
 
     def update(self, buffer: RolloutBuffer) -> dict[str, float]:
-        """PPO update with re-forward through both agents for differentiable comm."""
+        """PPO update with gradient flow through LoRA backbones."""
         self.speaker.train()
         self.listener.train()
+        # Clear caches so fresh LoRA-enabled forward passes happen
+        self.speaker.clear_cache()
+        self.listener.clear_cache()
 
         data = buffer.compute_returns_and_advantages(
             self.config.gamma, self.config.gae_lambda
@@ -135,13 +141,13 @@ class PPOTrainer:
                 mb_returns = returns[mb_idx]
                 mb_advantages = advantages[mb_idx]
 
-                # Re-forward speaker to get messages WITH gradients
-                speaker_out = self.speaker.act_batch(mb_speaker_obs)
-                messages = speaker_out["message"]  # (mb, comm_dim) - gradient tracked
+                # Re-forward speaker WITH LoRA gradients
+                speaker_out = self.speaker.act_batch(mb_speaker_obs, training=True)
+                messages = speaker_out["message"]
 
-                # Re-forward listener with gradient-tracked messages
+                # Re-forward listener WITH LoRA gradients
                 listener_out = self.listener.evaluate_batch(
-                    mb_listener_obs, messages, mb_raw_actions
+                    mb_listener_obs, messages, mb_raw_actions, training=True
                 )
 
                 # PPO clipped objective
@@ -149,23 +155,18 @@ class PPOTrainer:
                 ratio = (new_log_probs - mb_old_log_probs).exp()
                 surr1 = ratio * mb_advantages
                 surr2 = ratio.clamp(
-                    1.0 - self.config.clip_eps,
-                    1.0 + self.config.clip_eps,
+                    1.0 - self.config.clip_eps, 1.0 + self.config.clip_eps,
                 ) * mb_advantages
                 policy_loss = -torch.min(surr1, surr2).mean()
 
                 # Value losses
-                listener_value_loss = F.mse_loss(
-                    listener_out["value"], mb_returns
-                )
-                speaker_value_loss = F.mse_loss(
-                    speaker_out["value"], mb_returns
-                )
+                listener_value_loss = F.mse_loss(listener_out["value"], mb_returns)
+                speaker_value_loss = F.mse_loss(speaker_out["value"], mb_returns)
 
                 # Entropy bonus
                 entropy_loss = -listener_out["entropy"].mean()
 
-                # VQ commitment loss (if using VQ-SSR)
+                # VQ commitment loss if applicable
                 vq_loss = torch.tensor(0.0, device=self.device)
                 from src.comm.vq_ssr import VQSSRChannel
                 if isinstance(self.speaker.comm, VQSSRChannel):
@@ -191,18 +192,26 @@ class PPOTrainer:
                 metrics["speaker_value_loss"] += speaker_value_loss.item()
                 metrics["entropy"] += -entropy_loss.item()
                 metrics["grad_norm"] += grad_norm.item()
-                metrics["approx_kl"] += (
-                    (mb_old_log_probs - new_log_probs).mean().item()
-                )
+                metrics["approx_kl"] += (mb_old_log_probs - new_log_probs).mean().item()
+
                 # Message statistics
                 with torch.no_grad():
-                    msg_var = messages.var(dim=0).mean().item()
-                    msg_norm = messages.norm(dim=-1).mean().item()
-                    metrics["message_var"] += msg_var
-                    metrics["message_norm"] += msg_norm
-                    if isinstance(self.speaker.comm, VQSSRChannel):
-                        metrics["vq_perplexity"] += self.speaker.comm.last_perplexity
-                        metrics["vq_loss"] += self.speaker.comm.last_vq_loss
+                    metrics["message_var"] += messages.var(dim=0).mean().item()
+                    metrics["message_norm"] += messages.norm(dim=-1).mean().item()
+
+                # LoRA gradient norms (key diagnostic)
+                with torch.no_grad():
+                    speaker_lora_grad = 0.0
+                    listener_lora_grad = 0.0
+                    for name, p in self.speaker.backbone.named_parameters():
+                        if p.requires_grad and p.grad is not None:
+                            speaker_lora_grad += p.grad.norm().item()
+                    for name, p in self.listener.backbone.named_parameters():
+                        if p.requires_grad and p.grad is not None:
+                            listener_lora_grad += p.grad.norm().item()
+                    metrics["speaker_lora_grad_norm"] += speaker_lora_grad
+                    metrics["listener_lora_grad_norm"] += listener_lora_grad
+
                 update_count += 1
 
         return {k: v / max(update_count, 1) for k, v in metrics.items()}

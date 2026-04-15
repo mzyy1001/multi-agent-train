@@ -1,0 +1,4 @@
+comm:
+  type: "ssr"
+  dim: 8
+  normalize: false

@@ -1,0 +1,5 @@
+comm:
+  type: "vq_ssr"
+  dim: 8
+  num_codes: 16
+  commitment_cost: 0.25

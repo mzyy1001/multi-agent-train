@@ -14,7 +14,7 @@ class SSRChannel(CommChannel):
     The low dimensionality (4/8/16) forces structured compression.
     """
 
-    def __init__(self, input_dim: int, dim: int, normalize: bool = True):
+    def __init__(self, input_dim: int, dim: int, normalize: bool = True, **kwargs):
         super().__init__()
         self.dim = dim
         self.encoder = nn.Sequential(

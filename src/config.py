@@ -28,6 +28,14 @@ class CommConfig:
     num_symbols: int = 8
     gumbel_tau: float = 1.0
     gumbel_tau_min: float = 0.1
+    # SSR v2 options
+    normalize: bool = True
+    residual: bool = False
+    expansion: int = 4
+    dropout: float = 0.0
+    # VQ-SSR options
+    num_codes: int = 16
+    commitment_cost: float = 0.25
 
 
 @dataclass

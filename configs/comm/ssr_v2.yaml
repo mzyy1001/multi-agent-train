@@ -1,0 +1,5 @@
+comm:
+  type: "ssr_v2"
+  dim: 8
+  normalize: false
+  residual: true
