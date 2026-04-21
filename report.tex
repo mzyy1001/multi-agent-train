@@ -1,0 +1,201 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{times}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{geometry}
+\usepackage{caption}
+\usepackage{enumitem}
+
+\geometry{margin=2.5cm}
+
+\title{\Large\bfseries Differentiable Communication for LLM-based Multi-Agent Systems}
+\author{Multi-Agent Research Group}
+\date{}
+
+\begin{document}
+\maketitle
+
+% ============================================================
+\section{Task: Simple Speaker Listener}
+
+Simple Speaker Listener (PettingZoo MPE): 2 agents, 3 colored landmarks.
+
+\begin{itemize}[nosep,leftmargin=1.2em]
+    \item \textbf{Speaker}: observes target landmark color (3-dim). Cannot move. Sends a message.
+    \item \textbf{Listener}: observes own velocity + all 3 landmark positions (11-dim). Cannot see colors. Must navigate to the correct landmark.
+    \item Speaker doesn't know \emph{where} the landmarks are; listener doesn't know \emph{which} one is the target.
+    \item The only way to solve it: learn a communication protocol.
+    \item Reward = negative Euclidean distance to target each step, 25 steps per episode.
+\end{itemize}
+
+% ============================================================
+\section{Architecture}
+
+Each agent: frozen LLM backbone (SmolLM2-135M-Instruct, $H{=}576$) $\to$ trainable modules (${\sim}$245K params total). Per-timestep forward pass:
+\begin{align}
+    h_i &= \mathrm{LLM}_i(x_i) & & \text{(frozen, no gradient)} \\
+    z_i &= E_i(h_i) & & \text{(projector MLP, trainable)} \\
+    m   &= \mathrm{Comm}(z_{\mathrm{spk}}) & & \text{(comm channel, trainable)} \\
+    \tilde{h} &= D(z_{\mathrm{lst}},\; m) & & \text{(receiver adapter, trainable)} \\
+    a   &= \pi(\tilde{h}) & & \text{(action head, trainable)}
+\end{align}
+
+\subsection{Speaker}
+
+\begin{enumerate}[nosep,leftmargin=1.5em]
+    \item Observation (e.g.\ \texttt{[0.65, 0.15, 0.15]}) $\to$ text prompt $\to$ frozen LLM $\to$ $h \in \mathbb{R}^{576}$
+    \item Projector: MLP $(576 \to 128 \to 128)$ with LayerNorm + GELU $\to$ $z$
+    \item Comm channel: $z \to m \in \mathbb{R}^d$ (depends on method)
+    \item Value head: MLP $(128 \to 64 \to 1)$ for PPO baseline
+    \item No movement---the speaker's ``action'' is the message
+\end{enumerate}
+
+Only 3 unique observations exist (one per landmark color), so LLM hidden states are cached.
+
+\subsection{Listener}
+
+\begin{enumerate}[nosep,leftmargin=1.5em]
+    \item Observation (velocity + 3 landmark positions) $\to$ text prompt $\to$ frozen LLM $\to$ $h \in \mathbb{R}^{576}$
+    \item Projector: same architecture as speaker $\to$ $z$
+    \item Receiver adapter: $\tilde{h} = \mathrm{MLP}([z;\; m])$---concatenates own state with message
+    \item Action head: 5-dim continuous action via sigmoid-squashed Gaussian:
+    \begin{align}
+        \mu, \log\sigma &= f(\tilde{h}), \quad a_{\mathrm{raw}} \sim \mathcal{N}(\mu, \sigma^2) \\
+        a &= \mathrm{sigmoid}(a_{\mathrm{raw}}) \in [0, 1]^5
+    \end{align}
+    \item Value head for PPO baseline
+\end{enumerate}
+
+Continuous actions with the reparameterization trick keep the gradient path from the policy loss, through the action, through the adapter, through the message, to the speaker fully differentiable. Discrete actions would block this.
+
+% ============================================================
+\section{Communication Methods}
+
+All methods receive $z_{\mathrm{spk}} \in \mathbb{R}^{128}$ and output a message vector for the listener.
+
+\paragraph{No Communication (lower bound).}
+$m = \mathbf{0}$. Always zeros. Listener gets no signal from the speaker.
+
+\paragraph{Discrete (Gumbel-Softmax).}
+$m = \mathrm{GumbelSoftmax}(\mathrm{MLP}(z),\, \tau) \in \mathbb{R}^K$ with $K{=}8$ symbols. Soft one-hot during training (differentiable), hard argmax at eval. Temperature $\tau$ annealed from 1.0 to 0.1. Classic MARL discrete communication baseline.
+
+\paragraph{Continuous (unstructured).}
+$m = Wz + b \in \mathbb{R}^d$. Single linear projection, same dimension as SSR. No nonlinearity, no normalization. Ablation control---isolates whether SSR's structure matters beyond having a continuous channel.
+
+\paragraph{SSR (proposed).}
+$m = \mathrm{LayerNorm}(\mathrm{MLP}(z)) \in \mathbb{R}^d$. Two-layer MLP with $4{\times}$ expansion and GELU, then LayerNorm. The nonlinear bottleneck forces structured compression; LayerNorm prevents message collapse and stabilizes training.
+
+\begin{table}[h]
+\centering
+\caption{Communication methods comparison.}
+\vspace{0.3em}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{Method} & \textbf{Type} & \textbf{Dim} & \textbf{Differentiable} & \textbf{Structure} \\
+\midrule
+No Comm     & zeros       & --      & N/A            & None \\
+Discrete    & one-hot     & $K{=}8$ & Gumbel-Softmax & Categorical \\
+Continuous  & real vector & $d{=}8$ & fully          & Linear only \\
+\textbf{SSR} & \textbf{real vector} & $\boldsymbol{d{=}8}$ & \textbf{fully} & \textbf{MLP + LN} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ============================================================
+\section{Loss Functions}
+
+Joint PPO training with a single Adam optimizer ($\mathrm{lr}{=}3{\times}10^{-4}$) over all trainable parameters from both agents. Total loss:
+\begin{equation}
+    \mathcal{L} = \mathcal{L}_{\mathrm{pol}} + 0.5\left(\mathcal{L}_{\mathrm{val}}^{\mathrm{lst}} + \mathcal{L}_{\mathrm{val}}^{\mathrm{spk}}\right) + 0.01\,\mathcal{L}_{\mathrm{ent}}
+\end{equation}
+
+\paragraph{Policy loss (PPO clipped objective).}
+\begin{equation}
+    \mathcal{L}_{\mathrm{pol}} = -\frac{1}{B}\sum_t \min\!\left(r_t \hat{A}_t,\;\; \mathrm{clip}(r_t,\, 1{\pm}\epsilon)\,\hat{A}_t\right)
+\end{equation}
+where $r_t = \exp(\log\pi_{\mathrm{new}} - \log\pi_{\mathrm{old}})$, $\hat{A}_t$ from GAE ($\gamma{=}0.99$, $\lambda{=}0.95$), $\epsilon{=}0.2$. Computed on the listener's actions, but gradients flow through the message:
+\begin{equation}
+    \mathcal{L}_{\mathrm{pol}} \to \text{ActionHead} \to \text{Adapter} \to m \to \text{Comm} \to E_{\mathrm{spk}} \nonumber
+\end{equation}
+The speaker has no separate message loss---it learns entirely through the listener's policy gradient flowing backward through the differentiable message.
+
+\paragraph{Value losses.}
+\begin{align}
+    \mathcal{L}_{\mathrm{val}}^{\mathrm{lst}} &= \frac{1}{B}\sum_t \left(V_{\mathrm{lst}}(s_t) - R_t\right)^2 \\
+    \mathcal{L}_{\mathrm{val}}^{\mathrm{spk}} &= \frac{1}{B}\sum_t \left(V_{\mathrm{spk}}(o_t^{\mathrm{spk}}) - R_t\right)^2
+\end{align}
+Same cooperative returns $R_t$. Speaker value loss only trains the value head, not the comm channel.
+
+\paragraph{Entropy loss.}
+\begin{equation}
+    \mathcal{L}_{\mathrm{ent}} = -\frac{1}{B}\sum_t \sum_{d=1}^{5} \frac{1}{2}\!\left(1 + \ln 2\pi\sigma_{t,d}^2\right)
+\end{equation}
+Gaussian entropy over the listener's 5-dim action space. Maximizes exploration. Only affects the listener.
+
+\paragraph{Gradient flow summary.}
+
+\begin{table}[h]
+\centering
+\caption{Which loss terms train which agent.}
+\vspace{0.3em}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+ & \textbf{Speaker} & \textbf{Listener} & \textbf{Mechanism} \\
+\midrule
+$\mathcal{L}_{\mathrm{pol}}$                    & yes (via $m$)  & yes    & backprop thru message \\
+$\mathcal{L}_{\mathrm{val}}^{\mathrm{lst}}$     & no             & yes    & direct MSE \\
+$\mathcal{L}_{\mathrm{val}}^{\mathrm{spk}}$     & value head only & no    & direct MSE \\
+$\mathcal{L}_{\mathrm{ent}}$                    & no             & yes    & Gaussian entropy \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ============================================================
+\section{Experimental Setup}
+
+\begin{table}[h]
+\centering
+\caption{Key hyperparameters.}
+\vspace{0.3em}
+\begin{tabular}{@{}ll@{}}
+\toprule
+LLM backbone & SmolLM2-135M-Instruct (frozen) \\
+Hidden size & 576 \\
+Projector dim & 128 \\
+Message dim $d$ / symbols $K$ & 8 \\
+Optimizer & Adam, lr $= 3{\times}10^{-4}$ \\
+PPO clip $\epsilon$ & 0.2, 4 epochs per rollout \\
+GAE & $\gamma{=}0.99$, $\lambda{=}0.95$ \\
+Rollout batch & 32 episodes $\times$ 25 steps \\
+Training & 5{,}000 episodes \\
+Trainable params & ${\sim}$103K (speaker) + ${\sim}$142K (listener) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ============================================================
+\section{Results}
+
+All methods trained for 5{,}000 episodes with the same seed and frozen backbone. Evaluated over 50 episodes with deterministic actions.
+
+\begin{table}[h]
+\centering
+\caption{Final evaluation reward (higher = better, reward is negative distance).}
+\vspace{0.3em}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Method} & \textbf{Eval Reward} & \textbf{Std} & \textbf{vs.\ No-Comm} \\
+\midrule
+Discrete (Gumbel-Softmax) & $\mathbf{-45.32}$ & $43.63$ & $+107.15$ \\
+SSR ($d{=}8$)              & $-66.02$          & $59.35$ & $+86.45$ \\
+Continuous ($d{=}8$)       & $-77.77$          & $60.09$ & $+74.70$ \\
+No Communication           & $-152.47$         & $90.61$ & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\end{document}
